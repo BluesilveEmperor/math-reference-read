@@ -286,9 +286,52 @@ math-reference-read/
 ├── SKILL.md                 # Skill 主文档（详细工作流）
 ├── LICENSE                  # MIT 许可证
 ├── daily_usage.json         # 日用量记录（自动生成）
-└── scripts/
-    └── math_pdf_extract.py  # PDF 提取脚本
+├── scripts/
+│   └── math_pdf_extract.py  # PDF 提取脚本
+└── skills/
+    └── nature-figure/       # 科研绘图技能
+        ├── SKILL.md         # 技能路由和工作流
+        ├── manifest.yaml    # 配置清单
+        ├── README.md        # 技能说明文档
+        ├── static/          # 静态资源
+        └── references/      # 深度参考文档
 ```
+
+## 附赠技能：nature-figure 科研绘图
+
+本项目还包含一个独立的 **nature-figure** 技能，用于生成可投稿级科研图，面向 Nature 级期刊和高影响力学术场景。
+
+### 主要特性
+
+- **投稿级科研图工作流**：面向 Nature、Science、Cell 等高影响力期刊
+- **Python/R 双后端支持**：matplotlib/seaborn 和 ggplot2/patchwork/ComplexHeatmap
+- **图件契约系统**：从核心结论出发，而非直接套模板
+- **配色方案**：内置 Nature 风格配色方案，包括 NMI pastel 系列
+- **多面板信息结构**：支持复杂的多面板图设计
+- **导出格式**：支持 SVG、PDF、TIFF 等投稿级格式
+
+### 快速开始
+
+```bash
+# 将技能目录复制到你的 skills 目录
+cp -R skills/nature-figure ~/.config/opencode/skills/
+```
+
+### 使用示例
+
+```python
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+# 必需设置
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans', 'Liberation Sans']
+plt.rcParams['svg.fonttype'] = 'none'
+
+# 绘图代码...
+```
+
+> 详细文档请参考 `skills/nature-figure/README.md`
 
 ## 技术架构
 
@@ -319,6 +362,8 @@ MIT License - 详见 [LICENSE](LICENSE) 文件
 - [MinerU 官网](https://mineru.net)
 - [MinerU API 文档](https://mineru.net/apiManage/token)
 - [GitHub 仓库](https://github.com/BluesilveEmperor/math-reference-read)
+- [nature-figure 技能文档](skills/nature-figure/README.md)
+- [nature-skills 项目](https://github.com/Yuan1z0825/nature-skills)
 
 ---
 
@@ -332,6 +377,7 @@ math-reference-read: Intelligent PDF Analysis & Three-Perspective Review for Aca
 - **Smart PDF Parsing**: Based on MinerU SDK, supports math formulas and tables
 - **Structured Output**: Automatically generates academic-standard review reports
 - **Daily Usage Tracking**: Auto-records API usage for quota management
+- **Nature-figure Skill**: Publication-grade scientific figure generation for Nature/Science/Cell journals
 
 ## Quick Start
 
@@ -344,6 +390,18 @@ echo "token: 'your-api-key'" > ~/.mineru/config.yaml
 # Usage
 python scripts/math_pdf_extract.py "paper.pdf" --output-dir ./output
 ```
+
+## Nature-figure Skill
+
+This project includes a **nature-figure** skill for generating publication-grade scientific figures:
+
+- **Python/R dual backend support**: matplotlib/seaborn and ggplot2/patchwork/ComplexHeatmap
+- **Figure contract system**: Start from core conclusions, not templates
+- **Nature-style color schemes**: Including NMI pastel series
+- **Multi-panel information structure**: Support for complex figure layouts
+- **Export formats**: SVG, PDF, TIFF for publication submission
+
+See `skills/nature-figure/README.md` for detailed documentation.
 
 ## License
 
