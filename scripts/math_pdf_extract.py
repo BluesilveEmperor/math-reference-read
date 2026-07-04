@@ -1,14 +1,31 @@
 #!/usr/bin/env python3
 """
-MinerU Open SDK — 将本地 PDF 文件转换为 Markdown（使用 mineru-open-sdk 的 extract 模式）。
-读取 ~/.mineru/config.yaml 获取 token，支持 Precision Extract。
-每次操作结束后自动报告当日 API 用量。
+MinerU Open SDK — PDF 转 Markdown (Precision Extract)。
 
-用法:
-  python math_pdf_extract.py <pdf_path> [--output-dir <dir>] [--model vlm]
+使用 mineru-open-sdk 将本地 PDF 文件转换为结构化 Markdown，
+支持公式识别、表格抽取、OCR 扫描件。每次转换完成后自动
+报告当日 API 日用量。
 
-依赖:
-  pip install mineru-open-sdk
+:param str pdf_path: PDF 文件路径 (位置参数).
+:param str --output-dir: 输出目录, 默认 ./math-output.
+:param str --model: 模型版本, 可选 pipeline/vlm/html, 默认 vlm.
+:param bool --ocr: 启用 OCR (扫描件), 默认关闭.
+:param str --language: 文档语言, 英文=en, 中文=ch, 默认 en.
+:param bool --no-formula: 禁用公式识别, 默认开启.
+:param bool --no-table: 禁用表格识别, 默认开启.
+:param str --pages: 页码范围 (如 "1-10,15"), 默认全部.
+
+:raises SystemExit: 当 token 缺失、文件不存在或解析失败时退出.
+:return: 0 成功 / 1 失败.
+:rtype: int
+
+依赖::
+
+    pip install mineru-open-sdk
+
+用法::
+
+    python math_pdf_extract.py paper.pdf --output-dir ./math-output --model vlm
 """
 import os
 import sys
@@ -35,7 +52,15 @@ if sys.platform == "win32":
 # ── 配置读取 ──────────────────────────────────────────────────────────
 
 def get_token():
-    """从 ~/.mineru/config.yaml 读取 token。"""
+    """
+    从 ~/.mineru/config.yaml 读取 MinerU API token。
+
+    尝试优先使用 yaml 解析, fallback 到纯文本行解析。
+
+    :return: API token 字符串.
+    :rtype: str
+    :raises SystemExit: 当文件不存在或 token 为空时退出并提示配置步骤.
+    """
     config_path = Path.home() / ".mineru" / "config.yaml"
     if not config_path.exists():
         print("ERROR: 配置文件不存在: ~/.mineru/config.yaml", file=sys.stderr)
@@ -82,6 +107,12 @@ DAILY_QUOTA_PAGES = 2000  # MinerU 免费账号每日额度
 
 
 def _load_daily_usage() -> dict:
+    """
+    加载本地日用量 JSON 文件。
+
+    :return: 用量字典, 键为日期字符串 (yyyy-mm-dd), 值含 pages/files 字段.
+    :rtype: dict
+    """
     if QUOTA_FILE.exists():
         try:
             return json.loads(QUOTA_FILE.read_text(encoding="utf-8"))
@@ -91,6 +122,12 @@ def _load_daily_usage() -> dict:
 
 
 def _save_daily_usage(usage: dict):
+    """
+    持久化日用量 JSON 文件。
+
+    :param dict usage: 用量字典, 同 _load_daily_usage 格式.
+    :return: None
+    """
     QUOTA_FILE.parent.mkdir(parents=True, exist_ok=True)
     QUOTA_FILE.write_text(
         json.dumps(usage, ensure_ascii=False, indent=2), encoding="utf-8"
@@ -98,7 +135,20 @@ def _save_daily_usage(usage: dict):
 
 
 def report_quota(used_pages: int = 0):
-    """记录本次用量并报告当日余额。返回 (used_today, remaining_pages)。"""
+    """
+    记录本次 API 用量并报告当日余额。
+
+    自动清理 30 天前的历史记录。
+
+    :param int used_pages: 本次使用的页数, 默认 0.
+    :return: (used_today, remaining_pages) 二元组.
+    :rtype: tuple[int, int]
+
+    Example::
+
+        >>> report_quota(52)
+        (52, 1948)
+    """
     usage = _load_daily_usage()
     today = date.today().isoformat()  # e.g. "2026-06-15"
 
@@ -132,7 +182,16 @@ def report_quota(used_pages: int = 0):
 # ── 获取 PDF 页数（估算） ───────────────────────────────────────────
 
 def estimate_pdf_pages(pdf_path: str) -> int:
-    """尝试估算 PDF 页数，纯文本扫描，不依赖第三方库。"""
+    """
+    尝试估算 PDF 页数 (纯文本扫描, 无第三方依赖)。
+
+    先后尝试 /Type /Page 引用计数、/Pages /Count 正则匹配、
+    以及 /Page\\n 出现次数, 取最大值。
+
+    :param str pdf_path: PDF 文件路径.
+    :return: 估算页数, 0 表示无法估算.
+    :rtype: int
+    """
     path = Path(pdf_path)
     try:
         content = path.read_bytes()
@@ -153,6 +212,22 @@ def estimate_pdf_pages(pdf_path: str) -> int:
 # ── 主函数 ──────────────────────────────────────────────────────────
 
 def main():
+    """
+    CLI 入口: 解析参数 → 验证 token → 提取 PDF → 保存 Markdown → 报告用量.
+
+    :return: 0 成功 / 1 失败.
+    :rtype: int
+
+    完整流程::
+
+        1. 读取 MinerU token (~/.mineru/config.yaml)
+        2. 验证 mineru-open-sdk 可用性
+        3. 检查 PDF 文件存在性
+        4. 预估页数 (用于配额报告)
+        5. 调用 MinerU client.extract() 进行 Precision Extract
+        6. 保存 Markdown 到指定输出目录
+        7. 报告当日 API 用量
+    """
     parser = argparse.ArgumentParser(
         description="MinerU Open SDK — PDF → Markdown 转换（Precision Extract）"
     )

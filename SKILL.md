@@ -24,6 +24,19 @@ compatibility:
 
 # math-pdf-read: 数学/经济学文献三方视角审阅
 
+## SKILL_DIR 自动检测（runtime-neutral）
+
+```bash
+# 自动定位本 skill 目录（跨 Claude Code / OpenCode / DevEco Code / Codex 兼容）
+SKILL_DIR=""
+for base in "$HOME/.claude/skills" "$HOME/.config/opencode/skills" "$HOME/.config/deveco/skills" "$HOME/.codex/skills"; do
+  found=$(find "$base" -maxdepth 2 -name "SKILL.md" -path "*/math-reference-read/SKILL.md" -exec dirname {} \; 2>/dev/null | head -1)
+  if [ -n "$found" ]; then SKILL_DIR="$found"; break; fi
+done
+# fallback: 当前工作目录下的 math-reference-read/
+if [ -z "$SKILL_DIR" ] && [ -d "math-reference-read" ]; then SKILL_DIR="math-reference-read"; fi
+```
+
 ## 工作流概览
 
 ```mermaid
@@ -57,7 +70,21 @@ flowchart LR
 
 ---
 
+## 失败模式编码（嵌入工作流）
+
+每步附带 if-then 三段式 fallback。原则：不假设环境完美，所有异常必须显式处理。
+
+| 触发条件 | 一线修复 | 仍失败兜底 |
+|---------|---------|-----------|
+| MinerU token 未配置 | 友好引导创建 `~/.mineru/config.yaml` | 告知用户手动完成配置后重试 |
+| PDF 解析超时（>5分钟） | 用 `--pages "1-20"` 分批处理 | 切换 `--model pipeline` 加速 |
+| 文件 >200MB 或 >600 页 | 提示用户拆分文件 | 用 `--pages` 分页分批提取 |
+| 扫描件导致 OCR 失败 | 增加 `--ocr` 参数 | 用 `--model html` 尝试不同解析引擎 |
+| 网络请求失败 | 检查网络连接后重试 | 记录错误，告知用户稍后重试 |
+
 ## 第 1 步：检查 MinerU SDK 配置
+
+> **🔴 CHECKPOINT**：在执行 PDF 提取前，先确认 MinerU SDK 已配置。未配置则引导用户完成配置，不要跳过此步直接执行。
 
 **每次使用前必须检查 `~/.mineru/config.yaml` 是否存在且包含有效的 `token`。**
 
@@ -118,12 +145,12 @@ else:
 
 ```bash
 # 方式一：直接执行（脚本内含编码修复，适用于大多数环境）
-python .claude/skills/math-pdf-read/scripts/math_pdf_extract.py \
+python "$SKILL_DIR/scripts/math_pdf_extract.py" \
   "path/to/paper.pdf" \
   --output-dir ./math-output
 
 # 方式二：如果遇到 GBK 编码错误，加 PYTHONIOENCODING 前缀
-PYTHONIOENCODING=utf-8 python .claude/skills/math-pdf-read/scripts/math_pdf_extract.py \
+PYTHONIOENCODING=utf-8 python "$SKILL_DIR/scripts/math_pdf_extract.py" \
   "path/to/paper.pdf" \
   --output-dir ./math-output
 ```
@@ -165,16 +192,24 @@ PYTHONIOENCODING=utf-8 python .claude/skills/math-pdf-read/scripts/math_pdf_extr
 
 **每份 PDF 处理完毕，脚本自动调用本地日用量跟踪并报告当日用量。**
 
-### 错误处理
+### 错误处理（三段式 fallback）
 
-- **Token 无效／未配置**：引导用户配置 `~/.mineru/config.yaml`
-- **文件过大** (>200MB)：提示 mineru-open-sdk 限制 200MB/600页，建议拆分
-- **解析失败**：检查 PDF 是否加密、损坏或为扫描件（尝试启用 `--ocr`）
-- **超时**：默认最多等待 5 分钟，若仍超时建议检查网络或稍后重试
+| 触发条件 | 一线修复 | 仍失败兜底 |
+|---------|---------|-----------|
+| Token 无效／未配置 | 引导用户配置 `~/.mineru/config.yaml` | 告知用户手动完成后重试 |
+| 文件过大（>200MB） | 用 `--pages` 分批处理 | 拆分 PDF 为多个子文件 |
+| 解析失败 | 检查 PDF 是否加密、损坏 | 扫描件启用 `--ocr` |
+| 超时（>5分钟） | 用 `--pages "1-20"` 分批 | 切换 `--model pipeline` 加速 |
 
 ---
 
 ## 第 3 步：选择审阅身份（Perspective Selection）
+
+> **🔴 CHECKPOINT**：审阅前确认身份选择是否正确：
+> - 无关键词 → 研究生视角（默认）
+> - "导师"关键词 → 导师视角
+> - "审稿人"关键词 → 审稿人视角
+> - 若用户意图不明确，暂停并向用户确认。
 
 **这是 skill 的核心特性**——根据用户意图自动选择或手动切换审阅视角。
 
@@ -457,7 +492,7 @@ PYTHONIOENCODING=utf-8 python .claude/skills/math-pdf-read/scripts/math_pdf_extr
 
 例如：`高维计量经济学_审阅报告_研究生视角.md`
 
-建议将输出保存在用户指定的目录，或与原 PDF 同目录下的 `math-output/` 子目录中。
+将输出保存在用户指定的目录，或与原 PDF 同目录下的 `math-output/` 子目录中。
 
 ### 如果用户需要 PDF
 
@@ -503,7 +538,7 @@ flowchart TD
 # 读取 ~/.mineru/config.yaml 中的 token
 
 # 2️⃣ 转换 PDF → Markdown（只处理这一份）
-python .claude/skills/math-pdf-read/scripts/math_pdf_extract.py \
+python "$SKILL_DIR/scripts/math_pdf_extract.py" \
   "paper.pdf" --output-dir ./math-output
 
 # 3️⃣ 读取生成的 Markdown 并做审阅分析
@@ -545,6 +580,19 @@ python .claude/skills/math-pdf-read/scripts/math_pdf_extract.py \
 
 ---
 
+## 反例与黑名单（不要这样做）
+
+| # | 反模式 | 后果 | 正确做法 |
+|---|--------|------|---------|
+| 1 | **跳过 MinerU token 检查直接执行** | 脚本报错，用户困惑 | 每次必须检查 `~/.mineru/config.yaml`，未配置则友好引导用户配置 |
+| 2 | **多份 PDF 合并到同一个 `.md` 文件** | 内容混淆，审阅报告交叉污染 | 每份 PDF 独立提取→独立审阅→独立输出文件 |
+| 3 | **审阅时凭空编造原文内容** | 报告不准确，误导用户 | 所有提取信息必须有原文依据，不确定时标注"（推断）" |
+| 4 | **忽略 Windows GBK 编码兼容** | 终端报 `UnicodeEncodeError` | 命令前加 `PYTHONIOENCODING=utf-8` 前缀 |
+| 5 | **审稿人视角用学习语气而非评估语气** | 输出软绵绵不像审稿意见 | 审稿人必须做到"独立的专业判断"，明确区分必需修改 vs 建议修改 |
+| 6 | **超时后不提示用户改用 `--pages` 分批** | 大文件反复失败 | 超过 5 分钟超时时主动建议 `--pages "1-20"` 分批处理 |
+
+---
+
 ## 日用量跟踪说明
 
 **每次处理完一份 PDF，脚本会自动报告以下当日用量信息：**
@@ -558,7 +606,7 @@ python .claude/skills/math-pdf-read/scripts/math_pdf_extract.py \
 ──────────────────────────────────────────────
 ```
 
-- 数据记录在 `.claude/skills/math-pdf-read/daily_usage.json`（按日期自动管理）
+- 数据记录在 `$SKILL_DIR/daily_usage.json`（按日期自动管理）
 - 自动清理 30 天前的历史记录
 - 日限额基于 MinerU 免费账号的 **2000 页/天** 标准
 - 超出限额后不影响使用，只是解析优先级下降
@@ -568,7 +616,7 @@ python .claude/skills/math-pdf-read/scripts/math_pdf_extract.py \
 
 | 操作 | 说明 |
 |------|------|
-| 查看今日用量 | `python -c "import json; d=json.load(open(r'.claude/skills/math-pdf-read/daily_usage.json')); print(d.get('$(date +%Y-%m-%d)', {}))"` |
+| 查看今日用量 | `SKILL_DIR=...; python -c "import json; d=json.load(open(r'$SKILL_DIR/daily_usage.json')); print(d.get('$(date +%Y-%m-%d)', {}))"` 替换 `SKILL_DIR` 为实际路径 |
 | 查看历史用量 | 直接查看 `daily_usage.json` 文件 |
 | 重置统计 | 如果更换了 API Key，可手动删除 `daily_usage.json` 重置统计 |
 | 换 Key 后 | 删除 `daily_usage.json` 重新开始计数 |
@@ -617,7 +665,7 @@ alias python3="PYTHONIOENCODING=utf-8 python3"
 ### 依赖检查
 
 ```bash
-# 检查 mineru-open-sdk（Windows 上建议加编码前缀）
+# 检查 mineru-open-sdk（Windows 上必须加编码前缀）
 PYTHONIOENCODING=utf-8 python3 -c "from mineru import MinerU; print('mineru-open-sdk OK')" || pip install mineru-open-sdk
 ```
 
@@ -625,6 +673,111 @@ PYTHONIOENCODING=utf-8 python3 -c "from mineru import MinerU; print('mineru-open
 
 - 英文论文默认使用 `en` 语言参数
 - 中文论文在调用脚本时添加 `--language ch`
-- 含大量公式的论文建议保留默认的公式识别（`--no-formula` 未设置时开启）
+- 含大量公式的论文保留默认的公式识别（`--no-formula` 未设置时开启）
 - 扫描件/图片 PDF 需要启用 `--ocr`，但会增加处理时间
-- 经济学实证论文通常页码较多，注意 MinerU 600 页的限制
+ - 经济学实证论文通常页码较多，注意 MinerU 600 页的限制
+
+---
+
+## 代码注释规范 / Code Comment Standards
+
+本 skill 内的脚本遵循以下平台特定注释规范, 确保可维护性与交互式帮助质量。
+
+### ① Python (reST/Sphinx docstring 风格)
+
+所有公有函数必须包含 reST 风格 docstring, 覆盖:
+
+| 要素 | 要求 |
+|------|------|
+| 单行摘要 | 首行描述函数功能, 句号结尾 |
+| 详细描述 | 空行后解释边界情况、算法逻辑 |
+| `:param` | 参数名、类型、含义, 可选参数标注默认值 |
+| `:return:` / `:rtype:` | 返回值语义及类型 |
+| `:raises:` | 可能抛出的异常及条件 |
+| `Example::` | doctest 风格调用示例 (可选但推荐) |
+
+示例见 `scripts/math_pdf_extract.py` 中各函数 docstring。
+
+### ② MATLAB (H1 行 + help 注释块)
+
+当本 skill 未来包含 MATLAB 脚本时, 遵循以下规范:
+
+- **H1 行**: 函数名大写开头 + 简短描述 (供 `lookfor` 索引)
+- **语法块 (Syntax)**: 所有调用签名, 使用全大写占位符
+- **输入参数表**: 数据类型 + 维度 + 含义
+- **输出参数表**: 返回值结构与说明
+- **异常处理 (Error Handling)**: 定义错误 ID
+- **示例 (Examples)**: 命令行调用示例
+
+### ③ LaTeX (TikZ/pgfplots 宏参数注释)
+
+当本 skill 未来包含 LaTeX 排版脚本时:
+
+- **文件头声明**: 用途 / 依赖宏包 / 版本
+- **宏参数说明**: 写明 `#1` `#2` 含义及默认值
+- **键值对参数表**: 列出所有可用 key
+- **长文档分隔线**: `% ===` 分节
+- **复杂表格/公式 inline 注释**: 解释数据来源和单位
+
+---
+
+## 图表生成规范 / Chart Generation Standards (前瞻)
+
+本 skill 默认不生成图表, 但若审阅过程中需要可视化 (如统计分布图、对比柱状图等),
+输出应遵循以下多平台代码规范:
+
+### 必选平台
+
+| 平台 | 目录 | 说明 |
+|------|------|------|
+| Python | `code/python/plot_*.py` | matplotlib/seaborn, 固定种子, reST docstring |
+| LaTeX | `code/latex/plot_*.tex` | TikZ/pgfplots 出版级矢量图, 宏参数注释 |
+
+### 可选平台
+
+| 平台 | 目录 | 说明 |
+|------|------|------|
+| MATLAB | `code/matlab/plot_*.m` | H1 行 + help 注释块 |
+| Tableau | `code/tableau/plot_*.twb` | 工作簿 / 数据驱动 |
+
+### 区域标记注释
+
+图表源码中每个视觉元素前标注 `# [A]` / `% [A]` 区域标记,
+与图表上的标注一一对应, 便于审阅者反查代码段:
+
+```
+区域标记 [A][B][C]...  →  图表 PDF 上的标注字母  →  源码中的标记注释
+```
+
+---
+
+## 后处理: 自动更新 / Post-Processing: Auto-Update
+
+每次任务完成后, 自动检测本 skill 的 GitHub 仓库更新。
+
+### 执行位置
+
+文献审阅流程结束、向用户展示结果时一并输出更新信息。
+
+### 流程
+
+P.1 **版本检测**: 读取本地 `VERSION` → GET `raw.githubusercontent.com/.../VERSION` → 一致则跳过
+
+P.2 **更新执行**: 下载 ZIP → 解压 → 覆盖 skill 目录 → 写入新 VERSION
+
+P.3 **更新亮点**: GitHub API Compare → 提取 commits 格式化为 bullet list
+
+P.4 **失败处理**: 网络不可达→静默跳过; 下载失败→保留旧版; 均不影响本次任务结果
+
+### 执行脚本
+
+```bash
+powershell -ExecutionPolicy Bypass -File "$SKILL_DIR/scripts/auto_update.ps1"
+```
+
+---
+
+<!-- 反例补充 -->
+| # | 反模式 | 后果 | 正确做法 |
+|---|--------|------|---------|
+| 7 | 生成可视化图表时不导出生成代码 | 图表无法独立复现 | 每张图附带 Python+LaTeX 双平台代码 (`code/{python,latex}/plot_*`), 含 docstring + [A][B] 区域标记 |
