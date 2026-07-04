@@ -1,6 +1,6 @@
 param(
     [string]$SkillDir = "$PSScriptRoot\..",
-    [string]$RepoUrl = "https://github.com/BluesilveEmperor/skill-math-reference-read"
+    [string]$RepoUrl = "https://github.com/BluesilveEmperor/math-reference-read"
 )
 
 Write-Host "`n📦 检查 skill 更新..." -ForegroundColor Cyan
@@ -52,7 +52,7 @@ try {
 
     Write-Host "  ✅ 更新完成: $RemoteVersion" -ForegroundColor Green
 
-    $CompareUrl = "https://api.github.com/repos/BluesilveEmperor/skill-math-reference-read/compare/$LocalVersion...$RemoteVersion"
+    $CompareUrl = "https://api.github.com/repos/BluesilveEmperor/math-reference-read/compare/$LocalVersion...$RemoteVersion"
     try {
         $CompareResp = Invoke-WebRequest -Uri $CompareUrl -UseBasicParsing -TimeoutSec 10
         $CompareJson = $CompareResp.Content | ConvertFrom-Json
